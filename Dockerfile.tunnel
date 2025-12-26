@@ -1,65 +1,25 @@
 # =============================================================================
 # ESPHome Dev Container with VS Code Tunnel
 # =============================================================================
-# This Dockerfile builds on the official ESPHome devcontainer and adds
+# This Dockerfile uses the official ESPHome devcontainer image and adds
 # VS Code CLI for remote tunnel access from VS Code Desktop.
-# Based on: https://github.com/esphome/esphome/blob/dev/.devcontainer/Dockerfile
 # =============================================================================
 
-ARG BUILD_BASE_VERSION=2025.04.0
-
-# -----------------------------------------------------------------------------
-# Stage 1: Build the ESPHome devcontainer base
-# -----------------------------------------------------------------------------
-FROM ghcr.io/esphome/docker-base:debian-${BUILD_BASE_VERSION} AS base
-
-RUN git config --system --add safe.directory "*"
-
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-      protobuf-compiler \
-      curl \
-      ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
-
-RUN pip install uv
-
-RUN useradd esphome -m
-
-USER esphome
-ENV VIRTUAL_ENV=/home/esphome/.local/esphome-venv
-RUN uv venv $VIRTUAL_ENV
-ENV PATH="$VIRTUAL_ENV/bin:$PATH"
-
-# Override this set to true in the docker-base image
-ENV UV_SYSTEM_PYTHON=false
-
-WORKDIR /tmp
-
-# Copy and install requirements (context is esphome/esphome repo root)
-COPY requirements.txt ./
-RUN uv pip install -r requirements.txt
-
-COPY requirements_dev.txt requirements_test.txt ./
-RUN uv pip install -r requirements_dev.txt -r requirements_test.txt
-
-RUN platformio settings set enable_telemetry No \
-    && platformio settings set check_platformio_interval 1000000
-
-COPY script/platformio_install_deps.py platformio.ini ./
-RUN ./platformio_install_deps.py platformio.ini --libraries --platforms --tools
-
-# -----------------------------------------------------------------------------
-# Stage 2: Add VS Code CLI tunnel support
-# -----------------------------------------------------------------------------
-FROM base AS tunnel
+# Use the official ESPHome devcontainer image directly
+FROM ghcr.io/esphome/esphome:dev
 
 ARG TARGETARCH
 
 USER root
 
+# Install curl for downloading VS Code CLI
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
 # Download and install VS Code CLI based on architecture
-# Using direct Azure CDN URL which is more reliable in CI
+# Using alpine variant which is statically linked and more portable
 RUN set -ex \
     && if [ "$TARGETARCH" = "arm64" ]; then \
          VSCODE_ARCH="cli-alpine-arm64"; \
@@ -73,15 +33,16 @@ RUN set -ex \
     && chmod +x /usr/local/bin/code \
     && code --version
 
-# Ensure directories exist with correct permissions
-RUN mkdir -p /home/esphome /workspaces \
+# Create esphome user if it doesn't exist and set up directories
+RUN id -u esphome &>/dev/null || useradd -m -s /bin/bash esphome \
+    && mkdir -p /home/esphome /workspaces \
     && chown -R esphome:esphome /home/esphome /workspaces
 
 USER esphome
 
 # Set environment
 ENV HOME=/home/esphome
-ENV PATH="/usr/local/bin:${VIRTUAL_ENV}/bin:${PATH}"
+ENV PATH="/usr/local/bin:${PATH}"
 
 WORKDIR /workspaces
 

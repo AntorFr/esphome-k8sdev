@@ -21,16 +21,6 @@ jobs:
       - name: Checkout this repository
         uses: actions/checkout@v4
 
-      - name: Checkout esphome/esphome (dev branch)
-        uses: actions/checkout@v4
-        with:
-          repository: esphome/esphome
-          ref: dev
-          path: esphome
-
-      - name: Copy Dockerfile.tunnel to esphome context
-        run: cp Dockerfile.tunnel esphome/Dockerfile.tunnel
-
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
@@ -56,8 +46,8 @@ jobs:
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
-          context: ./esphome
-          file: ./esphome/Dockerfile.tunnel
+          context: .
+          file: ./Dockerfile.tunnel
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
