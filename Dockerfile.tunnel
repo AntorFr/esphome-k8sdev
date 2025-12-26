@@ -1,0 +1,63 @@
+# =============================================================================
+# ESPHome Dev Container with VS Code Tunnel
+# =============================================================================
+# This Dockerfile builds on the official ESPHome devcontainer and adds
+# VS Code CLI for remote tunnel access from VS Code Desktop.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Stage 1: Build the ESPHome devcontainer base
+# -----------------------------------------------------------------------------
+FROM ghcr.io/esphome/esphome-lint:dev as esphome-base
+
+# Context is esphome/esphome repo root
+COPY requirements.txt requirements_optional.txt requirements_test.txt /
+COPY script/platformio_install_deps.py /
+
+# Install ESPHome and dependencies
+RUN pip install --no-cache-dir -r /requirements.txt \
+    -r /requirements_optional.txt \
+    -r /requirements_test.txt \
+    && platformio settings set enable_telemetry No \
+    && platformio settings set check_platformio_interval 1000000 \
+    && python /platformio_install_deps.py /
+
+# -----------------------------------------------------------------------------
+# Stage 2: Add VS Code CLI tunnel support
+# -----------------------------------------------------------------------------
+FROM esphome-base
+
+ARG TARGETARCH
+
+# Install curl and ca-certificates for downloading VS Code CLI
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    ca-certificates \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Download and install VS Code CLI based on architecture
+RUN VSCODE_ARCH=$([ "$TARGETARCH" = "arm64" ] && echo "cli-linux-arm64" || echo "cli-linux-x64") \
+    && curl -fsSL "https://code.visualstudio.com/sha/download?build=stable&os=${VSCODE_ARCH}" -o /tmp/vscode-cli.tar.gz \
+    && tar -xzf /tmp/vscode-cli.tar.gz -C /usr/local/bin \
+    && rm /tmp/vscode-cli.tar.gz \
+    && chmod +x /usr/local/bin/code
+
+# Create esphome user if it doesn't exist
+RUN id -u esphome &>/dev/null || useradd -m -s /bin/bash esphome \
+    && mkdir -p /home/esphome /workspaces \
+    && chown -R esphome:esphome /home/esphome /workspaces
+
+# Set environment
+ENV HOME=/home/esphome
+ENV PATH="/usr/local/bin:${PATH}"
+
+WORKDIR /workspaces
+
+USER esphome
+
+# Expose ESPHome dashboard port
+EXPOSE 6052
+
+# Start VS Code tunnel on container start
+CMD ["code", "tunnel", "--accept-server-license-terms", "--name", "esphome-k8s"]

@@ -1,6 +1,7 @@
 # ESPHome
 .esphome/
 secrets.yaml
+esphome/
 
 # Python
 __pycache__/
