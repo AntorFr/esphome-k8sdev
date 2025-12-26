@@ -49,5 +49,6 @@ WORKDIR /workspaces
 # Expose ESPHome dashboard port
 EXPOSE 6052
 
-# Start VS Code tunnel on container start
+# Clear the ENTRYPOINT from the base image and set CMD
+ENTRYPOINT []
 CMD ["code", "tunnel", "--accept-server-license-terms", "--name", "esphome-k8s"]

@@ -1,0 +1,83 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: esphome-dev
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: esphome-data
+  namespace: esphome-dev
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  # Décommenter et adapter si vous avez une StorageClass spécifique
+  # storageClassName: longhorn
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: esphome-dev
+  namespace: esphome-dev
+spec:
+  serviceName: esphome-dev
+  replicas: 1
+  selector:
+    matchLabels:
+      app: esphome-dev
+  template:
+    metadata:
+      labels:
+        app: esphome-dev
+    spec:
+      securityContext:
+        fsGroup: 1000
+      containers:
+        - name: esphome
+          image: ghcr.io/antorfr/esphome-k8sdev:dev
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 6052
+              name: dashboard
+          volumeMounts:
+            - name: data
+              mountPath: /home/esphome
+              subPath: home
+            - name: data
+              mountPath: /workspaces
+              subPath: workspaces
+            - name: data
+              mountPath: /config
+              subPath: config
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "4Gi"
+              cpu: "2000m"
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: esphome-data
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: esphome-dashboard
+  namespace: esphome-dev
+spec:
+  selector:
+    app: esphome-dev
+  ports:
+    - port: 6052
+      targetPort: 6052
+      name: dashboard
+  type: ClusterIP
