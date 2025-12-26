@@ -3,38 +3,60 @@
 # =============================================================================
 # This Dockerfile builds on the official ESPHome devcontainer and adds
 # VS Code CLI for remote tunnel access from VS Code Desktop.
+# Based on: https://github.com/esphome/esphome/blob/dev/.devcontainer/Dockerfile
 # =============================================================================
+
+ARG BUILD_BASE_VERSION=2025.04.0
 
 # -----------------------------------------------------------------------------
 # Stage 1: Build the ESPHome devcontainer base
 # -----------------------------------------------------------------------------
-FROM ghcr.io/esphome/esphome-lint:dev as esphome-base
+FROM ghcr.io/esphome/docker-base:debian-${BUILD_BASE_VERSION} AS base
 
-# Context is esphome/esphome repo root
-COPY requirements.txt requirements_optional.txt requirements_test.txt /
-COPY script/platformio_install_deps.py /
+RUN git config --system --add safe.directory "*"
 
-# Install ESPHome and dependencies
-RUN pip install --no-cache-dir -r /requirements.txt \
-    -r /requirements_optional.txt \
-    -r /requirements_test.txt \
-    && platformio settings set enable_telemetry No \
-    && platformio settings set check_platformio_interval 1000000 \
-    && python /platformio_install_deps.py /
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+      protobuf-compiler \
+      curl \
+      ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN pip install uv
+
+RUN useradd esphome -m
+
+USER esphome
+ENV VIRTUAL_ENV=/home/esphome/.local/esphome-venv
+RUN uv venv $VIRTUAL_ENV
+ENV PATH="$VIRTUAL_ENV/bin:$PATH"
+
+# Override this set to true in the docker-base image
+ENV UV_SYSTEM_PYTHON=false
+
+WORKDIR /tmp
+
+# Copy and install requirements (context is esphome/esphome repo root)
+COPY requirements.txt ./
+RUN uv pip install -r requirements.txt
+
+COPY requirements_dev.txt requirements_test.txt ./
+RUN uv pip install -r requirements_dev.txt -r requirements_test.txt
+
+RUN platformio settings set enable_telemetry No \
+    && platformio settings set check_platformio_interval 1000000
+
+COPY script/platformio_install_deps.py platformio.ini ./
+RUN ./platformio_install_deps.py platformio.ini --libraries --platforms --tools
 
 # -----------------------------------------------------------------------------
 # Stage 2: Add VS Code CLI tunnel support
 # -----------------------------------------------------------------------------
-FROM esphome-base
+FROM base AS tunnel
 
 ARG TARGETARCH
 
-# Install curl and ca-certificates for downloading VS Code CLI
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
-    ca-certificates \
-    git \
-    && rm -rf /var/lib/apt/lists/*
+USER root
 
 # Download and install VS Code CLI based on architecture
 RUN VSCODE_ARCH=$([ "$TARGETARCH" = "arm64" ] && echo "cli-linux-arm64" || echo "cli-linux-x64") \
@@ -43,18 +65,17 @@ RUN VSCODE_ARCH=$([ "$TARGETARCH" = "arm64" ] && echo "cli-linux-arm64" || echo 
     && rm /tmp/vscode-cli.tar.gz \
     && chmod +x /usr/local/bin/code
 
-# Create esphome user if it doesn't exist
-RUN id -u esphome &>/dev/null || useradd -m -s /bin/bash esphome \
-    && mkdir -p /home/esphome /workspaces \
+# Ensure directories exist with correct permissions
+RUN mkdir -p /home/esphome /workspaces \
     && chown -R esphome:esphome /home/esphome /workspaces
+
+USER esphome
 
 # Set environment
 ENV HOME=/home/esphome
-ENV PATH="/usr/local/bin:${PATH}"
+ENV PATH="/usr/local/bin:${VIRTUAL_ENV}/bin:${PATH}"
 
 WORKDIR /workspaces
-
-USER esphome
 
 # Expose ESPHome dashboard port
 EXPOSE 6052
